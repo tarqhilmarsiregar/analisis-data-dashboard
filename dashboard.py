@@ -5,25 +5,20 @@ import streamlit as st
 from babel.numbers import format_currency
 sns.set(style='dark')
 
+rfm_data_df = pd.read_csv("rfm_data.csv")
+category_data_df = pd.read_csv("category_data.csv")
+payments_data_df = pd.read_csv("payments_data.csv")
 
-orders_orderItems_df = pd.read_csv("orders_orderItems.csv")
 datetime_columns = ["order_purchase_timestamp", "order_approved_at", "order_delivered_carrier_date", "order_delivered_customer_date", "order_estimated_delivery_date"]
 
 for column in datetime_columns:
-    orders_orderItems_df[column] = pd.to_datetime(orders_orderItems_df[column])
+    rfm_data_df[column] = pd.to_datetime(rfm_data_df[column])
 
-def create_daily_orders_df(df):
-    daily_orders_df = df.resample(rule='D', on='order_purchase_timestamp').agg({
-        "order_id": "nunique",
-        "price": "sum"
-    })
-    daily_orders_df = daily_orders_df.reset_index()
-    daily_orders_df.rename(columns={
-        "order_id": "order_count",
-        "price": "revenue"
-    }, inplace=True)
-    
-    return daily_orders_df    
+for column in datetime_columns:
+    category_data_df[column] = pd.to_datetime(category_data_df[column])
+
+for column in datetime_columns:
+    payments_data_df[column] = pd.to_datetime(payments_data_df[column])
 
 def create_rfm_df(df):
     rfm_df = df.groupby(by="customer_id", as_index=False).agg({
@@ -40,14 +35,14 @@ def create_rfm_df(df):
     
     return rfm_df
 
-orders_orderItems_df["order_purchase_date_only"] = orders_orderItems_df["order_purchase_timestamp"].dt.date
-orders_orderItems_df["order_purchase_date_only"] = pd.to_datetime(orders_orderItems_df["order_purchase_date_only"])
+rfm_data_df["order_purchase_date_only"] = rfm_data_df["order_purchase_timestamp"].dt.date
+rfm_data_df["order_purchase_date_only"] = pd.to_datetime(rfm_data_df["order_purchase_date_only"])
 
-orders_orderItems_df.sort_values(by="order_purchase_date_only", inplace=True)
-orders_orderItems_df.reset_index(inplace=True)
+rfm_data_df.sort_values(by="order_purchase_date_only", inplace=True)
+rfm_data_df.reset_index(inplace=True)
 
-min_date = orders_orderItems_df["order_purchase_date_only"].min()
-max_date = orders_orderItems_df["order_purchase_date_only"].max()
+min_date = rfm_data_df["order_purchase_date_only"].min()
+max_date = rfm_data_df["order_purchase_date_only"].max()
 
 with st.sidebar:
     # Menambahkan logo perusahaan
@@ -60,37 +55,56 @@ with st.sidebar:
         value=[min_date, max_date]
     )
 
-main_df = orders_orderItems_df[(orders_orderItems_df["order_purchase_timestamp"] >= str(start_date)) & 
-                (orders_orderItems_df["order_purchase_timestamp"] <= str(end_date))]
+rfm_data_filtered_df = rfm_data_df[(rfm_data_df["order_purchase_timestamp"] >= str(start_date)) & 
+                (rfm_data_df["order_purchase_timestamp"] <= str(end_date))]
 
-daily_orders_df = create_daily_orders_df(main_df)
-rfm_df = create_rfm_df(main_df)
+category_data_filtered_df = category_data_df[(category_data_df["order_purchase_timestamp"] >= str(start_date)) & 
+                (category_data_df["order_purchase_timestamp"] <= str(end_date))]
+
+payments_data_filtered_df = payments_data_df[(payments_data_df["order_purchase_timestamp"] >= str(start_date)) & 
+                (payments_data_df["order_purchase_timestamp"] <= str(end_date))]
+
+rfm_df = create_rfm_df(rfm_data_filtered_df)
 
 st.header('Brazilian E-Commerce Dashboard :sparkles:')
 
-st.subheader('Daily Orders')
- 
-col1, col2 = st.columns(2)
- 
-with col1:
-    total_orders = daily_orders_df.order_count.sum()
-    st.metric("Total orders", value=total_orders)
- 
-with col2:
-    total_revenue = format_currency(daily_orders_df.revenue.sum(), "AUD", locale='es_CO') 
-    st.metric("Total Revenue", value=total_revenue)
- 
-fig, ax = plt.subplots(figsize=(16, 8))
-ax.plot(
-    daily_orders_df["order_purchase_timestamp"],
-    daily_orders_df["order_count"],
-    marker='o', 
-    linewidth=2,
-    color="#90CAF9"
+st.subheader('Top 5 Product Categories with the Most Orders')
+
+top_5_byproduct_df = category_data_filtered_df.groupby(by="product_category_name").order_id.nunique().reset_index()
+top_5_byproduct_df.rename(columns={
+    "order_id": "product_category_count"
+}, inplace=True)
+
+fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(12, 6))
+
+sns.barplot(
+    y="product_category_count", 
+    x="product_category_name",
+    data=top_5_byproduct_df.sort_values(by="product_category_count", ascending=False).head(5),
+    color='blue'
 )
-ax.tick_params(axis='y', labelsize=20)
-ax.tick_params(axis='x', labelsize=15)
- 
+plt.title("Top 5 Product Categories with the Most Orders", loc="center", fontsize=14)
+plt.ylabel("Number of Orders", fontsize=12)
+plt.xlabel("Product Categories", fontsize=12)
+st.pyplot(fig)
+
+st.subheader('Distribution of Payment Methods Based on Number of Orders')
+orders_payments_counts = payments_data_filtered_df.groupby(by="payment_type").order_id.nunique().sort_values(ascending=False)
+
+fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(12, 6))
+
+sns.barplot(
+    x=orders_payments_counts.values, 
+    y=orders_payments_counts.index, 
+    orient="h", 
+    color="blue"
+)
+
+plt.title("Distribution of Payment Methods Based on Number of Orders", fontsize=14)
+plt.xlabel("Number of Orders", fontsize=12)
+plt.ylabel("Payment Methods", fontsize=12)
+
+plt.grid(axis="x", linestyle="-", alpha=0.5)
 st.pyplot(fig)
 
 st.subheader("Best Customer Based on RFM Parameters")
